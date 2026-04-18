@@ -1,4 +1,4 @@
-name: 04 Deploy Workflow
+name: Deploy Workflow
 
 on:
   workflow_run:
@@ -50,10 +50,7 @@ jobs:
 
       - name: Start container
         run: |
-          docker run -d \
-            --name "${CONTAINER_NAME}" \
-            -p "${APP_PORT}:8000" \
-            "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}"
+          docker run -d --name "${CONTAINER_NAME}"  -p "${APP_PORT}:8000" "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}"
 
       # ✅ NEW: Show running containers
       - name: List running containers
