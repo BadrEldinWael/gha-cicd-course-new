@@ -2,7 +2,7 @@ name: 04 Deploy Workflow
 
 on:
   workflow_run:
-    workflows: [" Build Artifact Workflow"]
+    workflows: ["Build Artifact Workflow"]
     types: [completed]
 
 env:
