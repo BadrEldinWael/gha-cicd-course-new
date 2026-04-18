@@ -46,7 +46,7 @@ jobs:
 
       # ✅ NEW: Show the recreated image tag
       - name: Show image tag
-        run: echo "Deploying image tag: ${{ steps.image-tag.outputs.image_tag }}"
+        run: echo "Deploying image tag:${{ steps.image-tag.outputs.image_tag }}"
 
       - name: Start container
         run: |
