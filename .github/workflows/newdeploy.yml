@@ -1,9 +1,7 @@
 name: 04 Deploy Workflow
 
 on:
-  workflow_run:
-    workflows: ["Build Artifact Workflow"]
-    types: [completed]
+  push: [main]
 
 env:
   IMAGE_NAME: tiny-health-app
