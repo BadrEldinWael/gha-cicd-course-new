@@ -1,0 +1,104 @@
+name: Continuos Delivery Task
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  IMAGE_NAME: tiny-health-app
+  CONTAINER_NAME: tiny-health-container
+  APP_PORT: "8000"
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 998718205915.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: githubactions
+
+jobs:
+  deploy-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::998718205915:role/badrgithublabrole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
+
+      - name: Prepare SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+
+          # Add EC2 to known_hosts
+          ssh-keyscan -H ${{ vars.EC2_IP }} >> ~/.ssh/known_hosts
+
+      - name: Test SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "echo Connected && whoami && hostname"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Copy scripts to EC2
+        run: |
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key -r ./scripts \
+          ubuntu@${{ vars.EC2_IP }}:/tmp/
+
+      - name: Prepare EC2 VM
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "chmod +x /tmp/scripts/assessment/prepare-ubuntu-vm.sh && \
+          sudo /tmp/scripts/assessment/prepare-ubuntu-vm.sh"
+
+      - name: Get ECR login password
+        id: ecr
+        run: |
+          echo "PASSWORD=$(aws ecr get-login-password --region $AWS_REGION)" >> $GITHUB_OUTPUT
+
+      - name: Login + Pull on EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "echo '${{ steps.ecr.outputs.PASSWORD }}' | \
+          docker login --username AWS --password-stdin ${ECR_REGISTRY} && \
+          docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+
+      - name: Stop old container (if exists)
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "docker rm -f ${CONTAINER_NAME} || true"
+
+      - name: Start container
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "docker run -d \
+            --name ${CONTAINER_NAME} \
+            -p ${APP_PORT}:8000 \
+            ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+
+      - name: Show running container
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "docker ps"
+
+      - name: Run validation script
+        run: |
+          bash scripts/assessment/validate-deployment.sh http://${{ vars.EC2_IP }}:8000
+
+      - name: Cleanup container
+        if: always()
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ubuntu@${{ vars.EC2_IP }} \
+          "docker rm -f ${CONTAINER_NAME} || true"
